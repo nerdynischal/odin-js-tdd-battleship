@@ -1,48 +1,65 @@
+// public/index.js
 import GameController from "../src/modules/GameController.js";
 import Ship from "../src/modules/Ship.js";
 
+/* ===== Globals ===== */
 let game;
 let playerGrid, opponentGrid, statusText;
 let isPlacementPhase = true;
 let direction = "horizontal";
-let shipsToPlace = [2, 3]; // Example ships
+const BOARD_SIZE = 10;
+const SHIPS_TO_PLACE = [2, 3, 4]; // example ship lengths
+let shipsToPlace = [2, 3];
 let aiAvailableMoves = [];
+let currentPreviewCoords = [];
+let hoveredCell = null; // [x,y] of hovered player cell
+let aiTargetQueue = [];
 
+/* ===== Init ===== */
 init();
 
 function init() {
+  // create new game controller
   game = GameController();
+
+  // reset state
   isPlacementPhase = true;
   direction = "horizontal";
   aiAvailableMoves = [];
+  currentPreviewCoords = [];
+  hoveredCell = null;
+  shipsToPlace = [...SHIPS_TO_PLACE];
+
+  // grab DOM nodes
   playerGrid = document.querySelector("#player-board .grid");
   opponentGrid = document.querySelector("#opponent-board .grid");
   statusText = document.getElementById("status");
+
+  // clear grids and status
   playerGrid.innerHTML = "";
   opponentGrid.innerHTML = "";
-  shipsToPlace = [2, 3];
-
   statusText.textContent = "Place your ships";
 
+  // create grids
   createBoards();
 
-  // Place opponent ships randomly
-  shipsToPlace.forEach((len) => {
-    const x = Math.floor(Math.random() * 3);
-    const y = Math.floor(Math.random() * 5);
-    game.getOpponent().gameboard.placeShip(Ship(len), x, y, "horizontal");
-  });
+  // Place opponent ships randomly (attempt until valid)
+  placeOpponentShipsRandomly([...shipsToPlace]); // clone array so both sides use same config
 
-  // Fill AI moves list (5x5 grid)
-  for (let y = 0; y < 5; y++) {
-    for (let x = 0; x < 5; x++) {
-      aiAvailableMoves.push([x, y]);
-    }
-  }
+  // fill AI available moves
+  for (let y = 0; y < BOARD_SIZE; y++)
+    for (let x = 0; x < BOARD_SIZE; x++) aiAvailableMoves.push([x, y]);
 
+  // hook rotate & restart (using onclick overwrites any previous handler so it's safe on re-init)
   document.getElementById("rotate-btn").onclick = () => {
     direction = direction === "horizontal" ? "vertical" : "horizontal";
     statusText.textContent = `Direction: ${direction}`;
+    // refresh preview if hovering
+    if (hoveredCell && isPlacementPhase) {
+      clearPreview();
+      const [hx, hy] = hoveredCell;
+      showPreview(hx, hy);
+    }
   };
 
   document.getElementById("restart-btn").onclick = () => {
@@ -50,49 +67,122 @@ function init() {
   };
 }
 
+/* ===== Create boards ===== */
 function createBoards() {
   // Player grid
-  for (let y = 0; y < 5; y++) {
-    for (let x = 0; x < 5; x++) {
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
       const cell = document.createElement("div");
       cell.classList.add("cell");
       cell.dataset.x = x;
       cell.dataset.y = y;
-      cell.onclick = () => {
-        if (isPlacementPhase) placeShipAt(x, y);
-      };
+
+      // Hover preview handlers
+      cell.addEventListener("mouseenter", () => {
+        hoveredCell = [x, y];
+        if (isPlacementPhase) showPreview(x, y);
+      });
+      cell.addEventListener("mouseleave", () => {
+        hoveredCell = null;
+        if (isPlacementPhase) clearPreview();
+      });
+
+      // Click to place ship during placement phase
+      cell.addEventListener("click", () => {
+        if (isPlacementPhase) {
+          placeShipAt(x, y);
+          clearPreview();
+        }
+      });
+
       playerGrid.appendChild(cell);
     }
   }
 
   // Opponent grid
-  for (let y = 0; y < 5; y++) {
-    for (let x = 0; x < 5; x++) {
+  for (let y = 0; y < BOARD_SIZE; y++) {
+    for (let x = 0; x < BOARD_SIZE; x++) {
       const cell = document.createElement("div");
       cell.classList.add("cell");
       cell.dataset.x = x;
       cell.dataset.y = y;
-      cell.onclick = () => {
+
+      // Click to attack only after placement phase ends
+      cell.addEventListener("click", () => {
         if (!isPlacementPhase) playerAttack(x, y, cell);
-      };
+      });
+
       opponentGrid.appendChild(cell);
     }
   }
 }
 
+/* ===== Placement helpers ===== */
+function showPreview(x, y) {
+  // preview only during placement and when there's a ship to place
+  if (!isPlacementPhase || shipsToPlace.length === 0) return;
+
+  const length = shipsToPlace[0];
+  const coords = calculateCoordinates(x, y, length, direction);
+
+  // check out-of-bounds
+  const outOfBounds = coords.some(
+    ([cx, cy]) => cx < 0 || cy < 0 || cx >= BOARD_SIZE || cy >= BOARD_SIZE
+  );
+
+  // check overlap with existing placed ships
+  const overlap = game
+    .getCurrentPlayer()
+    .gameboard.ships.some(({ coordinates }) =>
+      coordinates.some(([sx, sy]) =>
+        coords.some(([cx, cy]) => cx === sx && cy === sy)
+      )
+    );
+
+  const valid = !outOfBounds && !overlap;
+
+  // clear previous preview
+  clearPreview();
+
+  // apply preview classes and remember coords for clearing later
+  coords.forEach(([cx, cy]) => {
+    const idx = cy * BOARD_SIZE + cx;
+    const cell = playerGrid.children[idx];
+    if (!cell) return;
+    cell.classList.add(valid ? "preview-valid" : "preview-invalid");
+    currentPreviewCoords.push([cx, cy]);
+  });
+}
+
+function clearPreview() {
+  if (!currentPreviewCoords.length) return;
+  currentPreviewCoords.forEach(([cx, cy]) => {
+    const idx = cy * BOARD_SIZE + cx;
+    const cell = playerGrid.children[idx];
+    if (!cell) return;
+    cell.classList.remove("preview-valid", "preview-invalid");
+  });
+  currentPreviewCoords = [];
+}
+
+/* ===== Ship placement ===== */
 function placeShipAt(x, y) {
   if (shipsToPlace.length === 0) return;
   const length = shipsToPlace[0];
   const newShip = Ship(length);
   const coords = calculateCoordinates(x, y, length, direction);
 
-  // Check bounds
-  if (coords.some(([cx, cy]) => cx < 0 || cy < 0 || cx >= 5 || cy >= 5)) {
+  // Bounds check
+  if (
+    coords.some(
+      ([cx, cy]) => cx < 0 || cy < 0 || cx >= BOARD_SIZE || cy >= BOARD_SIZE
+    )
+  ) {
     statusText.textContent = "Ship out of bounds!";
     return;
   }
 
-  // Check overlap
+  // Overlap check
   const overlap = game
     .getCurrentPlayer()
     .gameboard.ships.some(({ coordinates }) =>
@@ -105,13 +195,24 @@ function placeShipAt(x, y) {
     return;
   }
 
+  // Place on gameboard
   game.getCurrentPlayer().gameboard.placeShip(newShip, x, y, direction);
+
+  // Visuals: mark each cell as ship and disable pointer events for placed cells
   coords.forEach(([cx, cy]) => {
-    const idx = cy * 5 + cx;
-    playerGrid.children[idx].classList.add("ship");
+    const idx = cy * BOARD_SIZE + cx;
+    const cell = playerGrid.children[idx];
+    if (!cell) return;
+    cell.classList.add("ship");
+    cell.style.pointerEvents = "none"; // avoid hover/preview on placed tiles
   });
 
+  // Remove placed ship from the list
   shipsToPlace.shift();
+
+  // clear any preview highlights
+  clearPreview();
+
   if (shipsToPlace.length === 0) {
     isPlacementPhase = false;
     statusText.textContent = "All ships placed! Your turn to attack!";
@@ -120,30 +221,37 @@ function placeShipAt(x, y) {
   }
 }
 
+/* ===== Player attack flow ===== */
 function playerAttack(x, y, cell) {
-  if (game.isGameOver()) return; // Prevent attack if game is already over
+  if (game.isGameOver()) return;
 
+  // prevent duplicate attack
   if (cell.classList.contains("hit") || cell.classList.contains("miss")) {
     statusText.textContent = "Already attacked there!";
     return;
   }
 
+  // perform attack through GameController
   const result = game.attack(x, y);
 
-  if (result === "hit" || result === "miss") {
-    cell.classList.add(result);
-    statusText.textContent =
-      result === "hit" ? "Hit! Opponent's turn..." : "Miss! Opponent's turn...";
-  } else if (result.startsWith("Game over")) {
-    // Last attack was a hit that sunk all ships
+  // handle results
+  if (result === "hit") {
+    cell.classList.add("hit");
+    statusText.textContent = "Hit! Opponent's turn...";
+  } else if (result === "miss") {
+    cell.classList.add("miss");
+    statusText.textContent = "Miss! Opponent's turn...";
+  } else if (typeof result === "string" && result.startsWith("Game over")) {
+    // final attack that won the game
     cell.classList.add("hit");
     statusText.textContent = result;
-    return; // Stop here, game over
+    return; // stop further actions
   }
 
-  if (game.isGameOver()) return; // Stop if game ended
+  // if game ended as side-effect (should be covered above), stop
+  if (game.isGameOver()) return;
 
-  // AI turn only if game not over
+  // AI will act after a short delay
   setTimeout(() => {
     aiTurn();
   }, 500);
@@ -152,30 +260,76 @@ function playerAttack(x, y, cell) {
 function aiTurn() {
   if (game.isGameOver()) return;
 
-  if (aiAvailableMoves.length === 0) return; // no moves left
+  let x, y;
 
-  // Pick random index from aiAvailableMoves
-  const idx = Math.floor(Math.random() * aiAvailableMoves.length);
-  const [x, y] = aiAvailableMoves.splice(idx, 1)[0]; // remove from available moves
+  if (aiTargetQueue.length > 0) {
+    // Take next target from queue
+    [x, y] = aiTargetQueue.shift();
 
-  const cell = playerGrid.querySelector(`[data-x='${x}'][data-y='${y}']`);
-  if (!cell) {
-    aiTurn(); // Just in case, pick again
-    return;
+    // If cell already attacked, skip and try again recursively
+    const idx = y * BOARD_SIZE + x;
+    const cell = playerGrid.children[idx];
+    if (
+      !cell ||
+      cell.classList.contains("hit") ||
+      cell.classList.contains("miss")
+    ) {
+      // Try again with next in queue or fallback to random
+      aiTurn();
+      return;
+    }
+  } else {
+    // No targets in queue, pick random move
+    if (aiAvailableMoves.length === 0) return;
+    const idx = Math.floor(Math.random() * aiAvailableMoves.length);
+    [x, y] = aiAvailableMoves.splice(idx, 1)[0];
   }
 
+  // Perform attack
   const result = game.attack(x, y);
 
-  if (result === "hit" || result === "miss") {
-    cell.classList.add(result);
-    statusText.textContent =
-      result === "hit" ? "Opponent hit your ship!" : "Opponent missed!";
-  } else if (result.startsWith("Game over")) {
-    cell.classList.add("hit"); // or "miss" if you want to improve
+  // Mark cell on player's grid
+  const cellIdx = y * BOARD_SIZE + x;
+  const cell = playerGrid.children[cellIdx];
+  if (!cell) return;
+
+  if (result === "hit") {
+    cell.classList.add("hit");
+    statusText.textContent = "Opponent hit your ship!";
+
+    // Add adjacent cells to target queue (within bounds and not attacked)
+    const adjacent = [
+      [x + 1, y],
+      [x - 1, y],
+      [x, y + 1],
+      [x, y - 1],
+    ];
+
+    adjacent.forEach(([ax, ay]) => {
+      if (ax >= 0 && ax < BOARD_SIZE && ay >= 0 && ay < BOARD_SIZE) {
+        const adjIdx = ay * BOARD_SIZE + ax;
+        const adjCell = playerGrid.children[adjIdx];
+        // Only add if not attacked and not already in queue
+        if (
+          adjCell &&
+          !adjCell.classList.contains("hit") &&
+          !adjCell.classList.contains("miss") &&
+          !aiTargetQueue.some(([tx, ty]) => tx === ax && ty === ay)
+        ) {
+          aiTargetQueue.push([ax, ay]);
+        }
+      }
+    });
+  } else if (result === "miss") {
+    cell.classList.add("miss");
+    statusText.textContent = "Opponent missed!";
+  } else if (typeof result === "string" && result.startsWith("Game over")) {
+    cell.classList.add("hit");
     statusText.textContent = result;
   }
 }
 
+/* ===== Helper utilities ===== */
 function calculateCoordinates(x, y, length, dir) {
   const coords = [];
   for (let i = 0; i < length; i++) {
@@ -183,4 +337,39 @@ function calculateCoordinates(x, y, length, dir) {
     else coords.push([x, y + i]);
   }
   return coords;
+}
+
+/* ===== Place opponent ships randomly but ensure valid placement ===== */
+function placeOpponentShipsRandomly(lengths) {
+  // place each ship length by trying random positions until it fits
+  lengths.forEach((len) => {
+    let placed = false;
+    let attempts = 0;
+    while (!placed && attempts < 200) {
+      attempts++;
+      const dir = Math.random() < 0.5 ? "horizontal" : "vertical";
+      const maxX = dir === "horizontal" ? BOARD_SIZE - len : BOARD_SIZE - 1;
+      const maxY = dir === "vertical" ? BOARD_SIZE - len : BOARD_SIZE - 1;
+      const x = Math.floor(Math.random() * (maxX + 1));
+      const y = Math.floor(Math.random() * (maxY + 1));
+
+      const coords = calculateCoordinates(x, y, len, dir);
+
+      // check overlap with existing opponent ships
+      const overlap = game
+        .getOpponent()
+        .gameboard.ships.some(({ coordinates }) =>
+          coordinates.some(([sx, sy]) =>
+            coords.some(([cx, cy]) => cx === sx && cy === sy)
+          )
+        );
+      if (overlap) continue;
+
+      game.getOpponent().gameboard.placeShip(Ship(len), x, y, dir);
+      placed = true;
+    }
+    if (!placed) {
+      console.warn("Failed to place opponent ship of length", len);
+    }
+  });
 }
