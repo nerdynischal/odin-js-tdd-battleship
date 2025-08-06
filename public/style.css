@@ -9,14 +9,14 @@ body {
 }
 
 h1 {
-  margin-top: 1.25rem;
+  margin-top: 3.25rem;
 }
 
-.boards {
+#game {
   display: flex;
   justify-content: center;
   gap: 3.125rem;
-  margin-top: 1.25rem;
+  margin-top: 3.25rem;
 }
 
 /* ====== Board ====== */
