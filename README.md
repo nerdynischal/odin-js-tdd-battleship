@@ -2,7 +2,7 @@
 
 A browser-based Battleship game built with JavaScript, HTML, and CSS. Built for [The Odin Project](https://www.theodinproject.com/) JavaScript curriculum.
 
-[Live preview]()
+[Live preview](https://nerdynischal.github.io/odin-js-tdd-battleship/)
 
 ## Features
 
