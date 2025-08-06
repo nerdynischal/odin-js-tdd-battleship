@@ -10,7 +10,6 @@
   },
   "scripts": {
     "test": "jest",
-    "predeploy": "cp -r src public/src",
     "deploy": "gh-pages -d public"
   },
   "jest": {
