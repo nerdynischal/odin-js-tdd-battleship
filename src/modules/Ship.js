@@ -1,5 +1,3 @@
-// src/modules/Ship.js
-
 export default function Ship(length) {
   let hits = 0;
 
