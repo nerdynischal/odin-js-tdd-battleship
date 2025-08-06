@@ -1,5 +1,5 @@
 // public/index.js
-import GameController from "../src/modules/GameController.js";
+import GameController from "./src/modules/GameController.js";
 import UI from "../src/ui/ui.js";
 import Placement from "../src/ui/placement.js";
 import AI from "../src/ui/ai.js";
