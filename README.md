@@ -20,8 +20,3 @@ A browser-based Battleship game built with JavaScript, HTML, and CSS. Built for 
 3. The AI will respond after each turn.
 4. The game ends when all ships of one side are sunk.
 5. Use the "Restart Game" button to play again.
-
-## Customization
-
-- Change board size in the JS files if desired.
-- Update styles in `public/style.css`.

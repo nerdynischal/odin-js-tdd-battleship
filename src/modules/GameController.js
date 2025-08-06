@@ -20,8 +20,8 @@ const GameController = (playerOne = Player(), playerTwo = Player()) => {
 
     if (allSunk) {
       gameOver = true;
-      const winner = currentPlayer === playerOne ? "Player 1" : "Player 2";
-      const msg = `Game over - ${winner} wins!`;
+      const winner = currentPlayer === playerOne ? "You" : "Your Opponent";
+      const msg = `Game over - ${winner} won!`;
       return msg;
     }
 
